@@ -12,8 +12,10 @@
 #include <immer/detail/rbts/node.hpp>
 #include <immer/detail/rbts/operations.hpp>
 #include <immer/detail/rbts/position.hpp>
+#include <immer/detail/rbts/trace_visitor.hpp>
 
 #include <immer/detail/type_traits.hpp>
+#include <immer/refcount/no_refcount_policy.hpp>
 
 #include <cassert>
 #include <limits>
@@ -41,14 +43,15 @@ struct rrbtree_iterator;
 template <typename T, typename MemoryPolicy, bits_t B, bits_t BL>
 struct rrbtree
 {
-    using node_t  = node<T, MemoryPolicy, B, BL>;
-    using edit_t  = typename node_t::edit_t;
-    using owner_t = typename MemoryPolicy::transience_t::owner;
+    using node_t     = node<T, MemoryPolicy, B, BL>;
+    using node_ptr_t = typename MemoryPolicy::template ptr<node_t>;
+    using edit_t     = typename node_t::edit_t;
+    using owner_t    = typename MemoryPolicy::transience_t::owner;
 
     size_t size;
     shift_t shift;
-    node_t* root;
-    node_t* tail;
+    node_ptr_t root;
+    node_ptr_t tail;
 
     constexpr static size_t max_size()
     {
@@ -58,6 +61,17 @@ struct rrbtree
     }
 
     static node_t* empty_root()
+    {
+        return empty_root_impl(std::is_same<typename MemoryPolicy::pointer,
+                                            storage_pointer_policy>{});
+    }
+
+    static node_t* empty_root_impl(std::true_type)
+    {
+        return node_t::make_inner_n(0u);
+    }
+
+    static node_t* empty_root_impl(std::false_type)
     {
         static const auto empty_ = [] {
             constexpr auto size = node_t::sizeof_inner_n(0);
@@ -69,6 +83,17 @@ struct rrbtree
     }
 
     static node_t* empty_tail()
+    {
+        return empty_tail_impl(std::is_same<typename MemoryPolicy::pointer,
+                                            storage_pointer_policy>{});
+    }
+
+    static node_t* empty_tail_impl(std::true_type)
+    {
+        return node_t::make_leaf_n(0u);
+    }
+
+    static node_t* empty_tail_impl(std::false_type)
     {
         static const auto empty_ = [] {
             constexpr auto size = node_t::sizeof_leaf_n(0);
@@ -110,7 +135,7 @@ struct rrbtree
         return result;
     }
 
-    rrbtree() noexcept
+    rrbtree()
         : size{0}
         , shift{BL}
         , root{empty_root()}
@@ -119,11 +144,7 @@ struct rrbtree
         assert(check_tree());
     }
 
-    rrbtree(size_t sz, shift_t sh, node_t* r, node_t* t)
-#if IMMER_THROW_ON_INVALID_STATE
-#else
-        noexcept
-#endif
+    rrbtree(size_t sz, shift_t sh, node_ptr_t r, node_ptr_t t)
         : size{sz}
         , shift{sh}
         , root{r}
@@ -185,11 +206,39 @@ struct rrbtree
 
     void inc() const
     {
+        inc_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
+
+    void dec() const
+    {
+        dec_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
+
+    void inc_impl(std::true_type) const {}
+    void inc_impl(std::false_type) const
+    {
         root->inc();
         tail->inc();
     }
 
-    void dec() const { traverse(dec_visitor()); }
+    void dec_impl(std::true_type) const {}
+    void dec_impl(std::false_type) const { traverse(dec_visitor()); }
+
+    /*!
+     * Visit every allocated tree node, relaxed-size allocation, and stored
+     * value reachable from this root. The visitor implements
+     * `visit_node(pointer)`, `visit_auxiliary(pointer)`, and
+     * `visit_value(value)`; value handling is left to the caller because
+     * application structs can carry storage references of their own.
+     */
+    template <typename Visitor>
+    void trace_children(Visitor&& visitor) const
+    {
+        using visitor_t = std::remove_reference_t<Visitor>;
+        traverse(trace_visitor<visitor_t>{}, visitor);
+    }
 
     auto tail_size() const { return size - tail_offset(); }
 

@@ -354,6 +354,12 @@ public:
         return {impl_.root, impl_.tail};
     }
 
+    template <typename Visitor>
+    void trace_children(Visitor& visitor) const
+    {
+        impl_.trace_children(visitor);
+    }
+
     // Semi-private
     const impl_t& impl() const { return impl_; }
 

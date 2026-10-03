@@ -58,6 +58,7 @@ struct node
     using value_t     = T;
     using bitmap_t    = typename get_bitmap_type<B>::type;
     using hash_t      = decltype(Hash{}(std::declval<const T&>()));
+    using node_ptr_t  = typename memory::template ptr<node_t>;
 
     enum class kind_t
     {
@@ -74,12 +75,13 @@ struct node
     {};
 
     using values_t = combine_standard_layout_t<values_data_t, refs_t, ownee_t>;
+    using values_ptr_t = typename memory::template ptr<values_t>;
 
-    struct inner_t : public with_trailing_storage<inner_t, node_t*>
+    struct inner_t : public with_trailing_storage<inner_t, node_ptr_t>
     {
         bitmap_t nodemap;
         bitmap_t datamap;
-        values_t* values;
+        values_ptr_t values;
     };
 
     union data_t
@@ -123,6 +125,20 @@ struct node
                sizeof(typename inner_t::storage_type) * count;
     }
 
+    template <typename HeapT>
+    static auto allocate_aligned(std::size_t size,
+                                 std::size_t alignment,
+                                 int) -> decltype(HeapT::allocate(size, alignment))
+    {
+        return HeapT::allocate(size, alignment);
+    }
+
+    template <typename HeapT>
+    static void* allocate_aligned(std::size_t size, std::size_t, long)
+    {
+        return HeapT::allocate(size);
+    }
+
 #if IMMER_TAGGED_NODE
     kind_t kind() const { return impl.d.kind; }
 #endif
@@ -141,6 +157,18 @@ struct node
         return (const T*) impl.d.data.inner.values->d.get_storage_ptr();
     }
 
+    const values_t* values_node() const
+    {
+        IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
+        return impl.d.data.inner.values;
+    }
+
+    values_ptr_t values_handle() const
+    {
+        IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
+        return impl.d.data.inner.values;
+    }
+
     auto children()
     {
         IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
@@ -150,7 +178,7 @@ struct node
     auto children() const
     {
         IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
-        return (const node_t* const*) impl.d.data.inner.get_storage_ptr();
+        return impl.d.data.inner.get_storage_ptr();
     }
 
     auto datamap() const
@@ -247,14 +275,14 @@ struct node
 #endif
         p->impl.d.data.inner.nodemap = 0;
         p->impl.d.data.inner.datamap = 0;
-        p->impl.d.data.inner.values  = nullptr;
+        p->impl.d.data.inner.values  = values_ptr_t{};
         return p;
     }
 
     static node_t* make_inner_n(count_t n)
     {
         assert(n <= branches<B>);
-        auto m = heap::allocate(sizeof_inner_n(n));
+        auto m = allocate_aligned<heap>(sizeof_inner_n(n), alignof(node_t), 0);
         return make_inner_n_into(m, sizeof_inner_n(n), n);
     }
 
@@ -275,7 +303,10 @@ struct node
         if (nv) {
             IMMER_TRY {
                 p->impl.d.data.inner.values =
-                    new (heap::allocate(sizeof_values_n(nv))) values_t{};
+                    new (allocate_aligned<heap>(sizeof_values_n(nv),
+                                                alignof(values_t),
+                                                0))
+                        values_t{};
             }
             IMMER_CATCH (...) {
                 deallocate_inner(p, n);
@@ -341,7 +372,9 @@ struct node
 
     static node_t* make_collision_n(count_t n)
     {
-        auto m = heap::allocate(sizeof_collision_n(n));
+        auto m = allocate_aligned<heap>(sizeof_collision_n(n),
+                                        alignof(node_t),
+                                        0);
         auto p = new (m) node_t;
 #if IMMER_TAGGED_NODE
         p->impl.d.kind = node_t::kind_t::collision;
@@ -352,7 +385,9 @@ struct node
 
     static node_t* make_collision(T v1, T v2)
     {
-        auto m = heap::allocate(sizeof_collision_n(2));
+        auto m = allocate_aligned<heap>(sizeof_collision_n(2),
+                                        alignof(node_t),
+                                        0);
         auto p = new (m) node_t;
 #if IMMER_TAGGED_NODE
         p->impl.d.kind = node_t::kind_t::collision;
@@ -385,7 +420,10 @@ struct node
             return values();
         else {
             auto nv    = data_count();
-            auto nxt   = new (heap::allocate(sizeof_values_n(nv))) values_t{};
+            auto nxt = new (allocate_aligned<heap>(sizeof_values_n(nv),
+                                                   alignof(values_t),
+                                                   0))
+                values_t{};
             auto dst   = nxt->d.get_storage_ptr();
             auto src   = values();
             ownee(nxt) = e;
@@ -1075,7 +1113,7 @@ struct node
 
     bool dec() const { return refs(this).dec(); }
 
-    static void inc_nodes(node_t** p, count_t n)
+    static void inc_nodes(node_ptr_t* p, count_t n)
     {
         for (auto i = p, e = i + n; i != e; ++i)
             refs(*i).inc();

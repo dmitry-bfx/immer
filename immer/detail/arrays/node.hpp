@@ -65,9 +65,23 @@ struct node
         heap::deallocate(sizeof_n(cap), p);
     }
 
+    template <typename HeapT>
+    static auto allocate_aligned(size_t size, size_t alignment, int)
+        -> decltype(HeapT::allocate(size, alignment))
+    {
+        return HeapT::allocate(size, alignment);
+    }
+
+    template <typename HeapT>
+    static void* allocate_aligned(size_t size, size_t, long)
+    {
+        return HeapT::allocate(size);
+    }
+
     static node_t* make_n(size_t n)
     {
-        return new (heap::allocate(sizeof_n(n))) node_t{};
+        return new (allocate_aligned<heap>(sizeof_n(n), alignof(node_t), 0))
+            node_t{};
     }
 
     static node_t* make_e(edit_t e, size_t n)

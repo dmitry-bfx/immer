@@ -10,6 +10,7 @@
 
 #include <immer/config.hpp>
 #include <immer/detail/rbts/bits.hpp>
+#include <immer/storage_ptr.hpp>
 
 #include <cassert>
 #include <type_traits>
@@ -66,6 +67,12 @@ empty_regular_pos<NodeT> make_empty_regular_pos(NodeT* node)
 }
 
 template <typename NodeT>
+empty_regular_pos<NodeT> make_empty_regular_pos(storage_ptr<NodeT> node)
+{
+    return make_empty_regular_pos(node.get());
+}
+
+template <typename NodeT>
 struct empty_leaf_pos
 {
     using node_t = NodeT;
@@ -88,6 +95,12 @@ empty_leaf_pos<NodeT> make_empty_leaf_pos(NodeT* node)
 {
     assert(node);
     return {node};
+}
+
+template <typename NodeT>
+empty_leaf_pos<NodeT> make_empty_leaf_pos(storage_ptr<NodeT> node)
+{
+    return make_empty_leaf_pos(node.get());
 }
 
 template <typename NodeT>
@@ -123,6 +136,12 @@ leaf_pos<NodeT> make_leaf_pos(NodeT* node, size_t size)
 }
 
 template <typename NodeT>
+leaf_pos<NodeT> make_leaf_pos(storage_ptr<NodeT> node, size_t size)
+{
+    return make_leaf_pos(node.get(), size);
+}
+
+template <typename NodeT>
 struct leaf_sub_pos
 {
     static constexpr auto B  = NodeT::bits;
@@ -152,6 +171,12 @@ leaf_sub_pos<NodeT> make_leaf_sub_pos(NodeT* node, count_t count)
     assert(node);
     assert(count <= branches<NodeT::bits_leaf>);
     return {node, count};
+}
+
+template <typename NodeT>
+leaf_sub_pos<NodeT> make_leaf_sub_pos(storage_ptr<NodeT> node, count_t count)
+{
+    return make_leaf_sub_pos(node.get(), count);
 }
 
 template <typename NodeT>
@@ -187,6 +212,12 @@ leaf_descent_pos<NodeT> make_leaf_descent_pos(NodeT* node)
 }
 
 template <typename NodeT>
+leaf_descent_pos<NodeT> make_leaf_descent_pos(storage_ptr<NodeT> node)
+{
+    return make_leaf_descent_pos(node.get());
+}
+
+template <typename NodeT>
 struct full_leaf_pos
 {
     static constexpr auto B  = NodeT::bits;
@@ -214,6 +245,12 @@ full_leaf_pos<NodeT> make_full_leaf_pos(NodeT* node)
 {
     assert(node);
     return {node};
+}
+
+template <typename NodeT>
+full_leaf_pos<NodeT> make_full_leaf_pos(storage_ptr<NodeT> node)
+{
+    return make_full_leaf_pos(node.get());
 }
 
 template <typename NodeT>
@@ -694,6 +731,14 @@ regular_pos<NodeT> make_regular_pos(NodeT* node, shift_t shift, size_t size)
     return {node, shift, size};
 }
 
+template <typename NodeT>
+regular_pos<NodeT> make_regular_pos(storage_ptr<NodeT> node,
+                                    shift_t shift,
+                                    size_t size)
+{
+    return make_regular_pos(node.get(), shift, size);
+}
+
 struct null_sub_pos
 {
     auto node() const { return nullptr; }
@@ -768,6 +813,12 @@ auto make_singleton_regular_sub_pos(NodeT* leaf, count_t count)
     IMMER_ASSERT_TAGGED(leaf->kind() == NodeT::kind_t::leaf);
     assert(count > 0);
     return singleton_regular_sub_pos<NodeT>{leaf, count};
+}
+
+template <typename NodeT>
+auto make_singleton_regular_sub_pos(storage_ptr<NodeT> leaf, count_t count)
+{
+    return make_singleton_regular_sub_pos(leaf.get(), count);
 }
 
 template <typename NodeT>
@@ -1049,6 +1100,13 @@ make_regular_sub_pos(NodeT* node, shift_t shift, size_t size)
     return {node, shift, size};
 }
 
+template <typename NodeT>
+regular_sub_pos<NodeT>
+make_regular_sub_pos(storage_ptr<NodeT> node, shift_t shift, size_t size)
+{
+    return make_regular_sub_pos(node.get(), shift, size);
+}
+
 template <typename NodeT,
           shift_t Shift,
           bits_t B  = NodeT::bits,
@@ -1143,6 +1201,16 @@ visit_regular_descent(NodeT* node, shift_t shift, Visitor v, size_t idx)
 #endif // IMMER_DEEP_DESCENT
     }
     IMMER_UNREACHABLE;
+}
+
+template <typename NodeT, typename Visitor>
+decltype(auto)
+visit_regular_descent(storage_ptr<NodeT> node,
+                       shift_t shift,
+                       Visitor v,
+                       size_t idx)
+{
+    return visit_regular_descent(node.get(), shift, v, idx);
 }
 
 template <typename NodeT>
@@ -1413,6 +1481,12 @@ full_pos<NodeT> make_full_pos(NodeT* node, shift_t shift)
     assert(node);
     assert(shift >= NodeT::bits_leaf);
     return {node, shift};
+}
+
+template <typename NodeT>
+full_pos<NodeT> make_full_pos(storage_ptr<NodeT> node, shift_t shift)
+{
+    return make_full_pos(node.get(), shift);
 }
 
 template <typename NodeT>
@@ -1832,6 +1906,14 @@ make_relaxed_pos(NodeT* node, shift_t shift, typename NodeT::relaxed_t* relaxed)
     return {node, shift, relaxed};
 }
 
+template <typename NodeT>
+relaxed_pos<NodeT> make_relaxed_pos(storage_ptr<NodeT> node,
+                                    shift_t shift,
+                                    typename NodeT::relaxed_t* relaxed)
+{
+    return make_relaxed_pos(node.get(), shift, relaxed);
+}
+
 template <typename NodeT, typename Visitor, typename... Args>
 decltype(auto) visit_maybe_relaxed_sub(
     NodeT* node, shift_t shift, size_t size, Visitor v, Args&&... args)
@@ -1846,6 +1928,17 @@ decltype(auto) visit_maybe_relaxed_sub(
         return make_regular_sub_pos(node, shift, size)
             .visit(v, std::forward<Args>(args)...);
     }
+}
+
+template <typename NodeT, typename Visitor, typename... Args>
+decltype(auto) visit_maybe_relaxed_sub(storage_ptr<NodeT> node,
+                                       shift_t shift,
+                                       size_t size,
+                                       Visitor v,
+                                       Args&&... args)
+{
+    return visit_maybe_relaxed_sub(
+        node.get(), shift, size, v, std::forward<Args>(args)...);
 }
 
 template <typename NodeT,
@@ -1986,8 +2079,17 @@ visit_maybe_relaxed_descent(NodeT* node, shift_t shift, Visitor v, size_t idx)
                         node = node->inner()[(idx >> level) & mask<B>];
                     } while ((level -= B) != endshift<B, BL>);
                     return make_leaf_descent_pos(node).visit(v, idx);
-                }
-            }
+        }
+}
+
+template <typename NodeT, typename Visitor>
+decltype(auto) visit_maybe_relaxed_descent(storage_ptr<NodeT> node,
+                                           shift_t shift,
+                                           Visitor v,
+                                           size_t idx)
+{
+    return visit_maybe_relaxed_descent(node.get(), shift, v, idx);
+}
             return make_leaf_descent_pos(node).visit(v, idx);
 #endif // IMMER_DESCENT_DEEP
         }

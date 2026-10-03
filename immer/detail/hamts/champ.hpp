@@ -10,6 +10,8 @@
 
 #include <immer/config.hpp>
 #include <immer/detail/hamts/node.hpp>
+#include <immer/memory_policy.hpp>
+#include <immer/refcount/no_refcount_policy.hpp>
 
 #include <algorithm>
 
@@ -128,6 +130,8 @@ struct champ
     static constexpr auto bits = B;
 
     using node_t   = node<T, Hash, Equal, MemoryPolicy, B>;
+    using node_ptr_t = typename MemoryPolicy::template ptr<node_t>;
+    using const_node_ptr_t = typename MemoryPolicy::template ptr<const node_t>;
     using edit_t   = typename MemoryPolicy::transience_t::edit;
     using owner_t  = typename MemoryPolicy::transience_t::owner;
     using bitmap_t = typename get_bitmap_type<B>::type;
@@ -135,10 +139,22 @@ struct champ
 
     static_assert(branches<B> <= sizeof(bitmap_t) * 8, "");
 
-    node_t* root;
+    node_ptr_t root;
     size_t size;
 
     static node_t* empty()
+    {
+        return empty_impl(std::is_same<typename MemoryPolicy::pointer,
+                                       storage_pointer_policy>{});
+    }
+
+private:
+    static node_t* empty_impl(std::true_type)
+    {
+        return node_t::make_inner_n(0);
+    }
+
+    static node_t* empty_impl(std::false_type)
     {
         static const auto empty_ = [] {
             constexpr auto size = node_t::sizeof_inner_n(0);
@@ -149,11 +165,36 @@ struct champ
         return empty_->inc();
     }
 
-    champ(node_t* r, size_t sz = 0) noexcept
+    champ(champ& other, std::true_type) noexcept
+        : root{other.root}, size{other.size}
+    {}
+
+    champ(champ& other, std::false_type) noexcept(
+        !std::is_same<typename MemoryPolicy::pointer,
+                      storage_pointer_policy>::value)
+        : champ{empty()}
+    {
+        using std::swap;
+        swap(root, other.root);
+        swap(size, other.size);
+    }
+
+public:
+
+    champ(node_ptr_t r, size_t sz = 0)
         : root{r}
         , size{sz}
     {
     }
+
+    template <typename PointerPolicy = typename MemoryPolicy::pointer,
+              std::enable_if_t<std::is_same<PointerPolicy,
+                                            storage_pointer_policy>::value,
+                               int> = 0>
+    champ(node_t* r, size_t sz = 0)
+        : root{r}
+        , size{sz}
+    {}
 
     champ(const champ& other) noexcept
         : champ{other.root, other.size}
@@ -161,10 +202,15 @@ struct champ
         inc();
     }
 
-    champ(champ&& other) noexcept
-        : champ{empty()}
+    champ(champ&& other) noexcept(
+        std::is_same<typename MemoryPolicy::refcount,
+                     no_refcount_policy>::value ||
+        !std::is_same<typename MemoryPolicy::pointer,
+                      storage_pointer_policy>::value)
+        : champ{other,
+                std::is_same<typename MemoryPolicy::refcount,
+                             no_refcount_policy>{}}
     {
-        swap(*this, other);
     }
 
     champ& operator=(const champ& other)
@@ -189,13 +235,30 @@ struct champ
 
     ~champ() { dec(); }
 
-    void inc() const { root->inc(); }
+    void inc() const
+    {
+        inc_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
 
     void dec() const
+    {
+        dec_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
+
+private:
+    void inc_impl(std::true_type) const {}
+    void inc_impl(std::false_type) const { root->inc(); }
+
+    void dec_impl(std::true_type) const {}
+    void dec_impl(std::false_type) const
     {
         if (root->dec())
             node_t::delete_deep(root, 0);
     }
+
+public:
 
     std::size_t do_check_champ(node_t* node,
                                count_t depth,
@@ -314,6 +377,26 @@ struct champ
         for_each_chunk_traversal(root, 0, fn);
     }
 
+    /*!
+     * Visit every allocated HAMT node, values block, and stored value
+     * reachable from this root. The visitor implements `visit_node(pointer)`,
+     * `visit_auxiliary(pointer)`, and `visit_value(value)`.
+     */
+    template <typename Visitor>
+    void trace_children(Visitor&& visitor) const
+    {
+        trace_node(root, 0, visitor);
+    }
+
+    template <typename PointerPolicy = typename MemoryPolicy::pointer,
+              std::enable_if_t<std::is_same<PointerPolicy,
+                                            storage_pointer_policy>::value,
+                               int> = 0>
+    storage_ptr<void> storage_handle() const noexcept
+    {
+        return root.template rebind<void>();
+    }
+
     template <typename Fn>
     void
     for_each_chunk_traversal(const node_t* node, count_t depth, Fn&& fn) const
@@ -333,6 +416,43 @@ struct champ
             fn(node->collisions(),
                node->collisions() + node->collision_count());
         }
+    }
+
+    template <typename Visitor>
+    static void trace_node(const node_t* node, count_t depth, Visitor& visitor)
+    {
+        visitor.visit_node(trace_node_reference(
+            node,
+            std::is_same<typename MemoryPolicy::pointer,
+                         storage_pointer_policy>{}));
+        if (depth < max_depth<hash_t, B>) {
+            const auto value_count = node->data_count();
+            if (value_count) {
+                visitor.visit_auxiliary(node->values_handle());
+                auto* values = node->values();
+                for (count_t i = 0; i < value_count; ++i)
+                    visitor.visit_value(values[i]);
+            }
+            auto* children = node->children();
+            for (count_t i = 0; i < node->children_count(); ++i)
+                trace_node(children[i], depth + 1, visitor);
+        } else {
+            auto* values = node->collisions();
+            for (count_t i = 0; i < node->collision_count(); ++i)
+                visitor.visit_value(values[i]);
+        }
+    }
+
+    static const_node_ptr_t trace_node_reference(const node_t* node,
+                                                  std::true_type)
+    {
+        return const_node_ptr_t::from_address(node);
+    }
+
+    static const_node_ptr_t trace_node_reference(const node_t* node,
+                                                  std::false_type)
+    {
+        return node;
     }
 
     template <typename EqualValue, typename Differ>

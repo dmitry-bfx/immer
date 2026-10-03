@@ -113,7 +113,11 @@ public:
      * collection. It does not allocate memory and its complexity is @f$ O(1)
      * @f$.
      */
-    IMMER_NODISCARD iterator end() const { return impl_.data() + impl_.size; }
+    IMMER_NODISCARD iterator end() const
+    {
+        auto* first = impl_.data();
+        return impl_.size ? first + impl_.size : first;
+    }
 
     /*!
      * Returns an iterator that traverses the collection backwards,
@@ -318,7 +322,24 @@ public:
      * contain the same objects.  However, two equal containers are not
      * guaranteed to have the same identity.
      */
-    void* identity() const { return impl_.ptr; }
+    void* identity() const { return static_cast<void*>(impl_.native_ptr()); }
+
+    template <typename Visitor>
+    void trace_children(Visitor& visitor) const
+    {
+        impl_.trace_children(visitor);
+    }
+
+    //! Returns this array's relocatable root when its memory policy uses handles.
+    template <typename MP = MemoryPolicy,
+              std::enable_if_t<
+                  std::is_same<typename MP::pointer,
+                               storage_pointer_policy>::value,
+                  int> = 0>
+    storage_ptr<void> storage_handle() const
+    {
+        return impl_.ptr.template rebind<void>();
+    }
 
     // Semi-private
     const impl_t& impl() const { return impl_; }

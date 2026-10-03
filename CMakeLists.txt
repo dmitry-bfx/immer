@@ -164,6 +164,7 @@ target_sources(immer PUBLIC FILE_SET HEADERS
     immer/detail/rbts/rbtree_iterator.hpp
     immer/detail/rbts/rrbtree.hpp
     immer/detail/rbts/rrbtree_iterator.hpp
+    immer/detail/rbts/trace_visitor.hpp
     immer/detail/rbts/visitor.hpp
     immer/detail/ref_count_base.hpp
     immer/detail/type_traits.hpp
@@ -221,6 +222,7 @@ target_sources(immer PUBLIC FILE_SET HEADERS
     immer/heap/identity_heap.hpp
     immer/heap/malloc_heap.hpp
     immer/heap/split_heap.hpp
+    immer/heap/storage_ptr_heap.hpp
     immer/heap/tags.hpp
     immer/heap/thread_local_free_list_heap.hpp
     immer/heap/unsafe_free_list_heap.hpp
@@ -233,12 +235,14 @@ target_sources(immer PUBLIC FILE_SET HEADERS
     immer/refcount/no_refcount_policy.hpp
     immer/refcount/refcount_policy.hpp
     immer/refcount/unsafe_refcount_policy.hpp
+    immer/storage_ptr.hpp
     immer/set.hpp
     immer/set_transient.hpp
     immer/table.hpp
     immer/table_transient.hpp
     immer/transience/gc_transience_policy.hpp
     immer/transience/no_transience_policy.hpp
+    immer/variant.hpp
     immer/vector.hpp
     immer/vector_transient.hpp
 )

@@ -446,12 +446,24 @@ struct equals_visitor : visitor_base<equals_visitor>
     }
 
     template <typename Pos, typename NodeT>
+    static bool visit_regular(Pos&& pos, storage_ptr<NodeT> other)
+    {
+        return visit_regular(std::forward<Pos>(pos), other.get());
+    }
+
+    template <typename Pos, typename NodeT>
     static bool visit_leaf(Pos&& pos, NodeT* other)
     {
         auto node = pos.node();
         return node == other || std::equal(node->leaf(),
                                            node->leaf() + pos.count(),
                                            other->leaf());
+    }
+
+    template <typename Pos, typename NodeT>
+    static bool visit_leaf(Pos&& pos, storage_ptr<NodeT> other)
+    {
+        return visit_leaf(std::forward<Pos>(pos), other.get());
     }
 };
 
@@ -558,6 +570,12 @@ void dec_leaf(NodeT* node, count_t n)
 }
 
 template <typename NodeT>
+void dec_leaf(storage_ptr<NodeT> node, count_t n)
+{
+    dec_leaf(node.get(), n);
+}
+
+template <typename NodeT>
 void dec_inner(NodeT* node, shift_t shift, size_t size)
 {
     visit_maybe_relaxed_sub(node, shift, size, dec_visitor());
@@ -576,9 +594,21 @@ void dec_regular(NodeT* node, shift_t shift, size_t size)
 }
 
 template <typename NodeT>
+void dec_regular(storage_ptr<NodeT> node, shift_t shift, size_t size)
+{
+    dec_regular(node.get(), shift, size);
+}
+
+template <typename NodeT>
 void dec_empty_regular(NodeT* node)
 {
     make_empty_regular_pos(node).visit(dec_visitor());
+}
+
+template <typename NodeT>
+void dec_empty_regular(storage_ptr<NodeT> node)
+{
+    dec_empty_regular(node.get());
 }
 
 template <typename NodeT>
@@ -591,7 +621,10 @@ struct get_mut_visitor : visitor_base<get_mut_visitor<NodeT>>
 
     template <typename Pos>
     static value_t&
-    visit_relaxed(Pos&& pos, size_t idx, edit_t e, node_t** location)
+    visit_relaxed(Pos&& pos,
+                  size_t idx,
+                  edit_t e,
+                  typename NodeT::node_ptr_t* location)
     {
         auto offset = pos.index(idx);
         auto count  = pos.count();
@@ -617,7 +650,10 @@ struct get_mut_visitor : visitor_base<get_mut_visitor<NodeT>>
 
     template <typename Pos>
     static value_t&
-    visit_regular(Pos&& pos, size_t idx, edit_t e, node_t** location)
+    visit_regular(Pos&& pos,
+                  size_t idx,
+                  edit_t e,
+                  typename NodeT::node_ptr_t* location)
     {
         assert(pos.node() == *location);
         auto offset = pos.index(idx);
@@ -648,7 +684,10 @@ struct get_mut_visitor : visitor_base<get_mut_visitor<NodeT>>
 
     template <typename Pos>
     static value_t&
-    visit_leaf(Pos&& pos, size_t idx, edit_t e, node_t** location)
+    visit_leaf(Pos&& pos,
+               size_t idx,
+               edit_t e,
+               typename NodeT::node_ptr_t* location)
     {
         assert(pos.node() == *location);
         auto node = pos.node();

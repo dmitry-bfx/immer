@@ -484,6 +484,21 @@ public:
     // Semi-private
     const impl_t& impl() const { return impl_; }
 
+    template <typename Policy = MemoryPolicy,
+              std::enable_if_t<std::is_same<typename Policy::pointer,
+                                            storage_pointer_policy>::value,
+                               int> = 0>
+    storage_ptr<void> storage_handle() const noexcept
+    {
+        return impl_.storage_handle();
+    }
+
+    template <typename Visitor>
+    void trace_children(Visitor& visitor) const
+    {
+        impl_.trace_children(visitor);
+    }
+
 private:
     friend transient_type;
 

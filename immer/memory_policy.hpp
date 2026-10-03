@@ -10,16 +10,32 @@
 
 #include <immer/heap/cpp_heap.hpp>
 #include <immer/heap/heap_policy.hpp>
+#include <immer/heap/storage_ptr_heap.hpp>
 #include <immer/lock/no_lock_policy.hpp>
 #include <immer/lock/spinlock_policy.hpp>
 #include <immer/refcount/no_refcount_policy.hpp>
 #include <immer/refcount/refcount_policy.hpp>
 #include <immer/refcount/unsafe_refcount_policy.hpp>
+#include <immer/storage_ptr.hpp>
 #include <immer/transience/gc_transience_policy.hpp>
 #include <immer/transience/no_transience_policy.hpp>
 #include <type_traits>
 
 namespace immer {
+
+//! Pointer representation used by nodes allocated with a memory policy.
+struct raw_pointer_policy
+{
+    template <typename T>
+    using ptr = T*;
+};
+
+//! Pointer representation for relocatable shared or persistent storage.
+struct storage_pointer_policy
+{
+    template <typename T>
+    using ptr = storage_ptr<T>;
+};
 
 /*!
  * Metafunction that returns the best *transience policy* to use for a
@@ -90,13 +106,18 @@ template <typename HeapPolicy,
           bool PreferFewerBiggerObjects =
               get_prefer_fewer_bigger_objects_v<HeapPolicy>,
           bool UseTransientRValues =
-              get_use_transient_rvalues_v<RefcountPolicy>>
+              get_use_transient_rvalues_v<RefcountPolicy>,
+          typename PointerPolicy = raw_pointer_policy>
 struct memory_policy
 {
     using heap       = HeapPolicy;
     using refcount   = RefcountPolicy;
     using transience = TransiencePolicy;
     using lock       = LockPolicy;
+    using pointer    = PointerPolicy;
+
+    template <typename T>
+    using ptr = typename pointer::template ptr<T>;
 
     static constexpr bool prefer_fewer_bigger_objects =
         PreferFewerBiggerObjects;
@@ -138,5 +159,18 @@ using default_lock_policy     = spinlock_policy;
 using default_memory_policy = memory_policy<default_heap_policy,
                                             default_refcount_policy,
                                             default_lock_policy>;
+
+//! Memory policy for arena-backed shared or persistent Immer containers.
+//!
+//! Nodes store only relocatable handles and do not carry process-local edit
+//! tokens or depend on persistent reference counts. Reclamation is delegated
+//! to the storage runtime's tracing collector.
+using storage_memory_policy = memory_policy<heap_policy<storage_ptr_heap>,
+                                            no_refcount_policy,
+                                            no_lock_policy,
+                                            no_transience_policy,
+                                            false,
+                                            false,
+                                            storage_pointer_policy>;
 
 } // namespace immer

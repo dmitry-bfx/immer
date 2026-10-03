@@ -12,7 +12,10 @@
 #include <immer/detail/rbts/node.hpp>
 #include <immer/detail/rbts/operations.hpp>
 #include <immer/detail/rbts/position.hpp>
+#include <immer/detail/rbts/trace_visitor.hpp>
 #include <immer/detail/type_traits.hpp>
+#include <immer/memory_policy.hpp>
+#include <immer/refcount/no_refcount_policy.hpp>
 
 #include <cassert>
 #include <memory>
@@ -27,13 +30,14 @@ template <typename T, typename MemoryPolicy, bits_t B, bits_t BL>
 struct rbtree
 {
     using node_t  = node<T, MemoryPolicy, B, BL>;
+    using node_ptr_t = typename MemoryPolicy::template ptr<node_t>;
     using edit_t  = typename node_t::edit_t;
     using owner_t = typename MemoryPolicy::transience_t::owner;
 
     size_t size;
     shift_t shift;
-    node_t* root;
-    node_t* tail;
+    node_ptr_t root;
+    node_ptr_t tail;
 
     constexpr static size_t max_size()
     {
@@ -43,14 +47,36 @@ struct rbtree
 
     static node_t* empty_root()
     {
+        return empty_root_impl(std::is_same<typename MemoryPolicy::pointer,
+                                            storage_pointer_policy>{});
+    }
+
+    static node_t* empty_root_impl(std::false_type)
+    {
         static const auto empty_ = node_t::make_inner_n(0u);
         return empty_->inc();
     }
 
+    static node_t* empty_root_impl(std::true_type)
+    {
+        return node_t::make_inner_n(0u);
+    }
+
     static node_t* empty_tail()
+    {
+        return empty_tail_impl(std::is_same<typename MemoryPolicy::pointer,
+                                            storage_pointer_policy>{});
+    }
+
+    static node_t* empty_tail_impl(std::false_type)
     {
         static const auto empty_ = node_t::make_leaf_n(0u);
         return empty_->inc();
+    }
+
+    static node_t* empty_tail_impl(std::true_type)
+    {
+        return node_t::make_leaf_n(0u);
     }
 
     template <typename U>
@@ -93,7 +119,7 @@ struct rbtree
         assert(check_tree());
     }
 
-    rbtree(size_t sz, shift_t sh, node_t* r, node_t* t)
+    rbtree(size_t sz, shift_t sh, node_ptr_t r, node_ptr_t t)
         : size{sz}
         , shift{sh}
         , root{r}
@@ -138,13 +164,34 @@ struct rbtree
 
     ~rbtree() { dec(); }
 
+    template <typename Visitor>
+    void trace_children(Visitor&& visitor) const
+    {
+        using visitor_t = std::remove_reference_t<Visitor>;
+        traverse(trace_visitor<visitor_t>{}, visitor);
+    }
+
     void inc() const
+    {
+        inc_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
+
+    void dec() const
+    {
+        dec_impl(std::is_same<typename MemoryPolicy::refcount,
+                              no_refcount_policy>{});
+    }
+
+    void inc_impl(std::true_type) const {}
+    void inc_impl(std::false_type) const
     {
         root->inc();
         tail->inc();
     }
 
-    void dec() const { traverse(dec_visitor()); }
+    void dec_impl(std::true_type) const {}
+    void dec_impl(std::false_type) const { traverse(dec_visitor()); }
 
     auto tail_size() const { return size ? ((size - 1) & mask<BL>) +1 : 0; }
 

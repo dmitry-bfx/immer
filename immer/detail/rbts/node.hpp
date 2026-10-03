@@ -48,6 +48,7 @@ struct node
     using ownee_t     = typename transience::ownee;
     using edit_t      = typename transience::edit;
     using value_t     = T;
+    using node_ptr_t  = typename memory::template ptr<node_t>;
 
     static constexpr bool embed_relaxed = memory::prefer_fewer_bigger_objects;
 
@@ -71,13 +72,14 @@ struct node
     using relaxed_t = std::conditional_t<embed_relaxed,
                                          relaxed_data_no_meta_t,
                                          relaxed_data_with_meta_t>;
+    using relaxed_ptr_t = typename memory::template ptr<relaxed_t>;
 
     struct leaf_t : public with_trailing_storage<leaf_t, T, true>
     {};
 
-    struct inner_t : public with_trailing_storage<inner_t, node_t*>
+    struct inner_t : public with_trailing_storage<inner_t, node_ptr_t>
     {
-        relaxed_t* relaxed;
+        relaxed_ptr_t relaxed;
     };
 
     union data_t
@@ -164,6 +166,25 @@ struct node
     using heap =
         typename heap_policy::template optimized<max_sizeof_inner>::type;
 
+    template <typename HeapT, typename... Tags>
+    static auto allocate_aligned(std::size_t size,
+                                 std::size_t alignment,
+                                 int,
+                                 Tags... tags)
+        -> decltype(HeapT::allocate(size, alignment, tags...))
+    {
+        return HeapT::allocate(size, alignment, tags...);
+    }
+
+    template <typename HeapT, typename... Tags>
+    static void* allocate_aligned(std::size_t size,
+                                  std::size_t,
+                                  long,
+                                  Tags... tags)
+    {
+        return HeapT::allocate(size, tags...);
+    }
+
 #if IMMER_TAGGED_NODE
     kind_t kind() const { return impl.d.kind; }
 #endif
@@ -180,7 +201,13 @@ struct node
         return impl.d.data.inner.relaxed;
     }
 
-    node_t** inner()
+    relaxed_ptr_t relaxed_handle() const
+    {
+        IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
+        return impl.d.data.inner.relaxed;
+    }
+
+    node_ptr_t* inner()
     {
         IMMER_ASSERT_TAGGED(kind() == kind_t::inner);
         return impl.d.data.inner.get_storage_ptr();
@@ -223,13 +250,13 @@ struct node
     static node_t* make_inner_n(count_t n)
     {
         assert(n <= branches<B>);
-        auto m = heap::allocate(sizeof_inner_n(n));
+        auto m = allocate_aligned<heap>(sizeof_inner_n(n), alignof(node_t), 0);
         return make_inner_n_into(m, sizeof_inner_n(n), n);
     }
 
     static node_t* make_inner_e(edit_t e)
     {
-        auto m                       = heap::allocate(max_sizeof_inner);
+        auto m = allocate_aligned<heap>(max_sizeof_inner, alignof(node_t), 0);
         auto p                       = new (m) node_t;
         ownee(p)                     = e;
         p->impl.d.data.inner.relaxed = nullptr;
@@ -242,13 +269,16 @@ struct node
     static node_t* make_inner_r_n(count_t n)
     {
         assert(n <= branches<B>);
-        auto mp = heap::allocate(sizeof_inner_r_n(n));
+        auto mp = allocate_aligned<heap>(sizeof_inner_r_n(n), alignof(node_t), 0);
         auto mr = static_cast<void*>(nullptr);
         if (embed_relaxed) {
             mr = reinterpret_cast<unsigned char*>(mp) + sizeof_inner_n(n);
         } else {
             IMMER_TRY {
-                mr = heap::allocate(sizeof_relaxed_n(n), norefs_tag{});
+                mr = allocate_aligned<heap>(sizeof_relaxed_n(n),
+                                             alignof(relaxed_t),
+                                             0,
+                                             norefs_tag{});
             }
             IMMER_CATCH (...) {
                 heap::deallocate(sizeof_inner_r_n(n), mp);
@@ -271,7 +301,10 @@ struct node
             [&](auto) { return node_t::make_inner_r_n(n); },
             [&](auto) {
                 auto p =
-                    new (heap::allocate(node_t::sizeof_inner_r_n(n))) node_t;
+                    new (allocate_aligned<heap>(node_t::sizeof_inner_r_n(n),
+                                                alignof(node_t),
+                                                0))
+                        node_t;
                 assert(r->d.count >= n);
                 node_t::refs(r).inc();
                 p->impl.d.data.inner.relaxed = r;
@@ -284,13 +317,16 @@ struct node
 
     static node_t* make_inner_r_e(edit_t e)
     {
-        auto mp = heap::allocate(max_sizeof_inner_r);
+        auto mp = allocate_aligned<heap>(max_sizeof_inner_r, alignof(node_t), 0);
         auto mr = static_cast<void*>(nullptr);
         if (embed_relaxed) {
             mr = reinterpret_cast<unsigned char*>(mp) + max_sizeof_inner;
         } else {
             IMMER_TRY {
-                mr = heap::allocate(max_sizeof_relaxed, norefs_tag{});
+                mr = allocate_aligned<heap>(max_sizeof_relaxed,
+                                            alignof(relaxed_t),
+                                            0,
+                                            norefs_tag{});
             }
             IMMER_CATCH (...) {
                 heap::deallocate(max_sizeof_inner_r, mp);
@@ -315,7 +351,10 @@ struct node
             [&](auto) { return node_t::make_inner_r_e(e); },
             [&](auto) {
                 auto p =
-                    new (heap::allocate(node_t::max_sizeof_inner_r)) node_t;
+                    new (allocate_aligned<heap>(node_t::max_sizeof_inner_r,
+                                                alignof(node_t),
+                                                0))
+                        node_t;
                 node_t::refs(r).inc();
                 p->impl.d.data.inner.relaxed = r;
                 node_t::ownee(p)             = e;
@@ -340,13 +379,16 @@ struct node
     static node_t* make_leaf_n(count_t n)
     {
         assert(n <= branches<BL>);
-        auto m = heap::allocate(sizeof_leaf_n(n));
+        auto m = allocate_aligned<heap>(sizeof_leaf_n(n), alignof(node_t), 0);
         return make_leaf_n_into(m, sizeof_leaf_n(n), n);
     }
 
     static node_t* make_leaf_e(edit_t e)
     {
-        auto p   = new (heap::allocate(max_sizeof_leaf)) node_t;
+        auto p = new (allocate_aligned<heap>(max_sizeof_leaf,
+                                             alignof(node_t),
+                                             0))
+            node_t;
         ownee(p) = e;
 #if IMMER_TAGGED_NODE
         p->impl.d.kind = node_t::kind_t::leaf;
@@ -883,8 +925,9 @@ struct node
                     node_t::ownee(src_r).can_mutate(e))
                     return src_r;
                 else {
-                    auto dst_r = impl.d.data.inner.relaxed =
-                        new (heap::allocate(max_sizeof_relaxed)) relaxed_t;
+                    auto* dst_r = new (allocate_aligned<heap>(
+                        max_sizeof_relaxed, alignof(relaxed_t), 0)) relaxed_t;
+                    impl.d.data.inner.relaxed = dst_r;
                     if (src_r) {
                         auto n = dst_r->d.count = src_r->d.count;
                         std::copy(
@@ -910,8 +953,9 @@ struct node
                     node_t::ownee(src_r) = ec;
                     return src_r;
                 } else {
-                    auto dst_r = impl.d.data.inner.relaxed =
-                        new (heap::allocate(max_sizeof_relaxed)) relaxed_t;
+                    auto* dst_r = new (allocate_aligned<heap>(
+                        max_sizeof_relaxed, alignof(relaxed_t), 0)) relaxed_t;
+                    impl.d.data.inner.relaxed = dst_r;
                     if (src_r) {
                         auto n = dst_r->d.count = src_r->d.count;
                         std::copy(
@@ -936,8 +980,11 @@ struct node
                     node_t::ownee(src_r).can_mutate(e))
                     return src_r;
                 else {
-                    auto dst_r =
-                        new (heap::allocate(max_sizeof_relaxed)) relaxed_t;
+                    auto* dst_r =
+                        new (allocate_aligned<heap>(max_sizeof_relaxed,
+                                                    alignof(relaxed_t),
+                                                    0))
+                            relaxed_t;
                     if (src_r) {
                         std::copy(
                             src_r->d.sizes, src_r->d.sizes + n, dst_r->d.sizes);
@@ -947,7 +994,8 @@ struct node
                     }
                     dst_r->d.count                   = n;
                     node_t::ownee(dst_r)             = e;
-                    return impl.d.data.inner.relaxed = dst_r;
+                    impl.d.data.inner.relaxed = dst_r;
+                    return dst_r;
                 }
             });
     }
@@ -966,7 +1014,7 @@ struct node
 
     bool dec() const { return refs(this).dec(); }
 
-    static void inc_nodes(node_t** p, count_t n)
+    static void inc_nodes(node_ptr_t* p, count_t n)
     {
         for (auto i = p, e = i + n; i != e; ++i)
             refs(*i).inc();
