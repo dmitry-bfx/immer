@@ -5,6 +5,19 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 project(immer VERSION 0.9.0)
 
+# CMake target names are global across sibling projects in a superbuild.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  set(IMMER_CHECK_TARGET check)
+  set(IMMER_TESTS_TARGET tests)
+  set(IMMER_EXAMPLES_TARGET examples)
+  set(IMMER_CTEST_PREFIX "")
+else()
+  set(IMMER_CHECK_TARGET immer-check)
+  set(IMMER_TESTS_TARGET immer-tests)
+  set(IMMER_EXAMPLES_TARGET immer-examples)
+  set(IMMER_CTEST_PREFIX "immer/")
+endif()
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS on)
 set(CMAKE_CXX_EXTENSIONS off)
 
@@ -289,7 +302,7 @@ if(immer_BUILD_TESTS
    OR immer_BUILD_EXAMPLES
    OR immer_BUILD_EXTRAS)
   add_custom_target(
-    check
+    ${IMMER_CHECK_TARGET}
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Build and run all the tests and examples.")

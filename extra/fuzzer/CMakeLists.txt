@@ -1,7 +1,7 @@
 add_custom_target(fuzzers COMMENT "Build all fuzzers.")
 
 if(CHECK_FUZZERS)
-  add_dependencies(tests fuzzers)
+  add_dependencies(${IMMER_TESTS_TARGET} fuzzers)
 endif()
 
 # LIB_FUZZING_ENGINE is set by the Google OSS-Fuzz infrastructure. Otherwise we
@@ -29,7 +29,8 @@ foreach(_file IN LISTS immer_fuzzers)
   target_link_libraries(${_target} PUBLIC ${immer_fuzzing_engine} immer-dev)
   add_dependencies(fuzzers ${_target})
   if(CHECK_FUZZERS)
-    add_test("fuzzer/${_output}" ${_output} -max_total_time=1)
+    add_test("${IMMER_CTEST_PREFIX}fuzzer/${_output}"
+             ${_output} -max_total_time=1)
   endif()
   if(immer_INSTALL_FUZZERS)
     install(TARGETS ${_target} DESTINATION bin)

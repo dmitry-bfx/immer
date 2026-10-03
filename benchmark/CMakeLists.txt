@@ -74,7 +74,7 @@ if(BENCHMARK_DISABLE_GC)
 endif()
 
 if(CHECK_BENCHMARKS)
-  add_dependencies(check benchmarks)
+  add_dependencies(${IMMER_CHECK_TARGET} benchmarks)
 endif()
 
 add_custom_target(

@@ -27,8 +27,8 @@ add_executable(
 target_precompile_headers(
   persist-tests PRIVATE <immer/extra/persist/cereal/save.hpp>
   <immer/extra/persist/cereal/load.hpp>)
-add_dependencies(tests persist-tests)
-add_test("test/persist-tests" persist-tests)
+add_dependencies(${IMMER_TESTS_TARGET} persist-tests)
+add_test("${IMMER_CTEST_PREFIX}test/persist-tests" persist-tests)
 target_include_directories(persist-tests PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(persist-tests PRIVATE fmt::fmt Catch2::Catch2WithMain
                                             xxHash::xxhash)

@@ -1,8 +1,8 @@
 # Targets
 # =======
 
-add_custom_target(tests COMMENT "Build all the unit tests.")
-add_dependencies(check tests)
+add_custom_target(${IMMER_TESTS_TARGET} COMMENT "Build all the unit tests.")
+add_dependencies(${IMMER_CHECK_TARGET} ${IMMER_TESTS_TARGET})
 
 find_package(Catch2 REQUIRED)
 include(CTest)
@@ -19,14 +19,14 @@ foreach(_file IN LISTS immer_unit_tests)
   immer_target_name_for(_target _output "${_file}")
   add_executable(${_target} EXCLUDE_FROM_ALL "${_file}")
   set_target_properties(${_target} PROPERTIES OUTPUT_NAME ${_output})
-  add_dependencies(tests ${_target})
+  add_dependencies(${IMMER_TESTS_TARGET} ${_target})
   target_compile_definitions(
     ${_target}
     PUBLIC IMMER_OSS_FUZZ_DATA_PATH="${CMAKE_CURRENT_SOURCE_DIR}/oss-fuzz/data"
            IMMER_THROW_ON_INVALID_STATE=1)
   target_link_libraries(${_target} PUBLIC immer-dev Catch2::Catch2WithMain)
   set_target_properties(${_target} PROPERTIES CXX_VISIBILITY_PRESET hidden)
-  add_test("test/${_output}" ${_output})
+  add_test("${IMMER_CTEST_PREFIX}test/${_output}" ${_output})
 endforeach()
 
 if(immer_BUILD_PERSIST_TESTS)
